@@ -1,0 +1,68 @@
+name: Lint
+
+# Catches YAML errors and Helm chart bugs before they reach students.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  yamllint:
+    name: yamllint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ibiqlik/action-yamllint@v3
+        with:
+          file_or_dir: |
+            exercises
+            .github/workflows
+          config_data: |
+            extends: relaxed
+            rules:
+              line-length: disable
+              document-start: disable
+              truthy:
+                check-keys: false
+
+  helm-lint:
+    name: helm lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: latest
+      - name: Lint solution chart
+        run: helm lint exercises/03-helm/solution/helm/pedelec
+      - name: Render solution chart (smoke test)
+        run: helm template pedelec exercises/03-helm/solution/helm/pedelec --debug
+
+  kubeconform:
+    name: kubeconform (K8s manifests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: latest
+      - name: Install kubeconform
+        run: |
+          curl -sSL -o kubeconform.tgz \
+            https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz
+          tar -xzf kubeconform.tgz
+          sudo mv kubeconform /usr/local/bin/
+      - name: Validate exercise 02 solution manifests
+        run: |
+          kubeconform -strict -summary -kubernetes-version 1.30.0 \
+            exercises/02-kubernetes/solution/k8s/
+      - name: Validate rendered Helm chart
+        run: |
+          helm template pedelec exercises/03-helm/solution/helm/pedelec \
+            | kubeconform -strict -summary -kubernetes-version 1.30.0 -
